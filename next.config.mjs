@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // Accommodate multi-page base64 document uploads (up to 50MB)
   experimental: {
+    agentUpgrade: "latest",
     serverActions: {
       bodySizeLimit: "50mb",
     },
