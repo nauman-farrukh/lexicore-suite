@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lexicore Suite — Client Handover Index & Launcher</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(15, 23, 42, 0.75);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --accent-cyan: #06b6d4;
+      --accent-indigo: #6366f1;
+      --accent-emerald: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 40px 20px;
+      line-height: 1.5;
+    }
+    .ambient-glow {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 400px;
+      background: radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.1), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 10;
+    }
+    .header-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-family: monospace;
+      font-weight: bold;
+      background: rgba(99, 102, 241, 0.15);
+      color: #a5b4fc;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p.lead {
+      color: #94a3b8;
+      font-size: 14px;
+      max-width: 680px;
+    }
+    .key-box {
+      margin-top: 24px;
+      padding: 20px;
+      border-radius: 16px;
+      background: rgba(6, 182, 212, 0.08);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+    }
+    .key-title {
+      font-size: 11px;
+      font-family: monospace;
+      color: var(--accent-cyan);
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    .key-display {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #090d16;
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-family: monospace;
+      font-size: 14px;
+      color: #67e8f9;
+      font-weight: bold;
+      word-break: break-all;
+    }
+    .copy-btn {
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      color: #c7d2fe;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .copy-btn:hover {
+      background: var(--accent-indigo);
+      color: white;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .card h3 {
+      font-size: 14px;
+      font-weight: bold;
+      color: white;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card p {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .action-panel {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(6, 182, 212, 0.1) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 16px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .btn-launch {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+      color: white;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      font-size: 13px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+      width: fit-content;
+    }
+    .btn-launch:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.5);
+    }
+    .cmd-box {
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #38bdf8;
+    }
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <div class="container">
+    <div class="header-card">
+      <div class="badge">CLIENT HANDOVER INDEX &bull; SAAS EDITION v2.0</div>
+      <h1>Lexicore Suite Launchpad</h1>
+      <p class="lead">
+        Welcome to your official client handover package. Lexicore Suite is an autonomous cloud & desktop platform engineered for legal, CPA, and tax advisory operations.
+      </p>
+
+      <div class="key-box">
+        <div class="key-title">Included 3-Month SaaS Enterprise License Key (Valid through Dec 27, 2026)</div>
+        <div class="key-display">
+          <span id="licenseKey">LEXI-SAAS-2026-90D-88F4-A92B-4E1C</span>
+          <button class="copy-btn" onclick="copyKey()">Copy Key</button>
+        </div>
+      </div>
+
+      <!-- Multi-User Credentials Info -->
+      <div style="margin-top: 16px; padding: 16px; border-radius: 12px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2);">
+        <div style="font-size: 11px; font-family: monospace; color: #a5b4fc; font-weight: bold; margin-bottom: 8px;">
+          MULTI-USER LOGIN CREDENTIALS & DEMO ACCOUNTS
+        </div>
+        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">
+          Users can set their own custom credentials via <strong>Create Account</strong> or sign in using any seeded role account (Password: <code style="color: #67e8f9;">Password123!</code>):
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 11px; font-family: monospace;">
+          <div style="background: #090d16; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="color: #67e8f9; font-weight: bold;">Eleanor Vance (Partner)</div>
+            <div style="color: #94a3b8;">eleanor@vancelegal.com</div>
+          </div>
+          <div style="background: #090d16; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="color: #a7f3d0; font-weight: bold;">Rachel Adams (Billing)</div>
+            <div style="color: #94a3b8;">rachel@vancelegal.com</div>
+          </div>
+          <div style="background: #090d16; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="color: #c084fc; font-weight: bold;">Marcus Sterling (Client POC)</div>
+            <div style="color: #94a3b8;">marcus@apexhorizon.com</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1-Click Launch Options -->
+    <div class="action-panel">
+      <div>
+        <h2 style="font-size: 16px; font-weight: bold; color: white; margin-bottom: 4px;">Quick Launch Options</h2>
+        <p style="font-size: 12px; color: #94a3b8;">Run the software locally on your Windows machine with a single click:</p>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+        <a href="http://localhost:3000" target="_blank" class="btn-launch">
+          <span>Open Web Dashboard (http://localhost:3000)</span> &rarr;
+        </a>
+      </div>
+
+      <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
+        Or double-click <strong>start_lexicore.bat</strong> in this folder to automatically install dependencies and launch the server.
+      </div>
+      <div class="cmd-box">
+        Double-Click: start_lexicore.bat &nbsp;|&nbsp; Or run: npm run dev
+      </div>
+    </div>
+
+    <!-- Architectural Features Grid -->
+    <div class="grid">
+      <div class="card">
+        <h3>&bull; Billing & Hardware Printing</h3>
+        <p>Spreadsheet-parity fee editor with 0.1 hr increments, Legal (8.5&times;14") vs Letter paper formats, 1-click Excel export, and local physical printing.</p>
+      </div>
+
+      <div class="card">
+        <h3>&bull; Strict IOLTA Escrow Ledger</h3>
+        <p>Immutable double-entry schema in Prisma with Decimal(12, 2) accuracy to prevent commingling or overdrafts of client retainer funds.</p>
+      </div>
+
+      <div class="card">
+        <h3>&bull; Gemini 2.5 Flash Pre-Flight</h3>
+        <p>Automated multimodal document analysis via official @google/genai SDK. Flags checklist mismatches and extracts masked Tax IDs.</p>
+      </div>
+
+      <div class="card">
+        <h3>&bull; Tauri 2.0 Desktop Shell</h3>
+        <p>Rust-backed hardware spooler supporting GDI rasterization and CUPS commands to silently stream print jobs directly to office laser printers.</p>
+      </div>
+
+      <div class="card">
+        <h3>&bull; Client Matter Status Portal</h3>
+        <p>Interactive 5-stage matter pipeline tracker with pre-flight checklist verification and encrypted attorney-client messaging.</p>
+      </div>
+
+      <div class="card">
+        <h3>&bull; Enterprise Security & RBAC</h3>
+        <p>7 granular firm staff & client roles with tenant isolation and PostgreSQL pgvector semantic case retrieval.</p>
+      </div>
+    </div>
+
+    <!-- Handover Checklist & Support -->
+    <div class="card" style="margin-bottom: 24px;">
+      <h3 style="margin-bottom: 12px;">Client Handover Checklist</h3>
+      <ul style="font-size: 12px; color: #94a3b8; list-style-position: inside; line-height: 1.8;">
+        <li><strong style="color: #e2e8f0;">Source Code:</strong> Complete Next.js 15, React 19, and Tauri 2.0 Rust code in this folder</li>
+        <li><strong style="color: #e2e8f0;">Documentation:</strong> Detailed instructions in <code>README.md</code></li>
+        <li><strong style="color: #e2e8f0;">Environment Template:</strong> <code>.env.example</code> with database and API keys</li>
+        <li><strong style="color: #e2e8f0;">Portable Archive:</strong> <code>lexicore-suite-client-handover.zip</code> (ready for email/cloud transfer)</li>
+      </ul>
+    </div>
+
+    <div class="footer">
+      Lexicore Suite &bull; Enterprise Tax, Accounting & Legal Operating System &bull; Handover Package 2026
+    </div>
+  </div>
+
+  <script>
+    function copyKey() {
+      const key = document.getElementById("licenseKey").innerText;
+      navigator.clipboard.writeText(key).then(() => {
+        const btn = document.querySelector(".copy-btn");
+        btn.innerText = "Copied!";
+        setTimeout(() => { btn.innerText = "Copy Key"; }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

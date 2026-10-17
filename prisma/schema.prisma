@@ -1,0 +1,345 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// ---------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------
+
+enum UserRole {
+  MANAGING_PARTNER
+  PARTNER
+  ASSOCIATE
+  PARALEGAL
+  BILLING_SPECIALIST
+  CLIENT_ADMIN
+  CLIENT_USER
+}
+
+enum MatterType {
+  TAX
+  ACCOUNTING
+  LEGAL
+}
+
+enum MatterStatus {
+  INTAKE_PENDING
+  UNDER_REVIEW
+  DRAFTING
+  PARTNER_SIGNOFF
+  COMPLETED
+  ARCHIVED
+}
+
+enum ChecklistStatus {
+  PENDING
+  UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ISSUED
+  PAID
+  VOID
+}
+
+enum LineItemCategory {
+  SERVICE
+  EXPENSE
+  FILING_FEE
+}
+
+enum TrustTransactionType {
+  DEPOSIT
+  DISBURSEMENT_TO_OPERATING
+  REFUND
+}
+
+// ---------------------------------------------------------
+// MULTI-TENANT & USER ACCESS MODELS
+// ---------------------------------------------------------
+
+model Tenant {
+  id              String         @id @default(uuid())
+  name            String         // e.g. "Lexicore Legal & Accounting LLP"
+  slug            String         @unique
+  plan            String         @default("FREE_COMMUNITY")
+  users           User[]
+  matters         Matter[]
+  invoices        Invoice[]
+  trustAccounts   TrustAccount[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([slug])
+}
+
+model User {
+  id                    String             @id @default(uuid())
+  tenantId              String
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email                 String             @unique
+  passwordHash          String?            // Null if OAuth / Supabase Auth managed
+  fullName              String
+  role                  UserRole
+  mfaEnabled            Boolean            @default(false)
+  mfaSecret             String?            // Encrypted TOTP seed
+  staffProfile          StaffProfile?
+  clientProfile         ClientProfile?
+  createdAuditLogs      AuditLog[]         @relation("ActorAuditLogs")
+  approvedTransactions  TrustTransaction[] @relation("ApprovedTrustTransactions")
+  verifiedDocuments     Document[]         @relation("VerifiedStaffDocuments")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([tenantId, role])
+  @@index([email])
+}
+
+model StaffProfile {
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String      // e.g. "Senior Tax Associate", "Partner"
+  barNumber       String?     // For Attorneys
+  cpaLicense      String?     // For CPAs
+  defaultRate     Decimal     @default(350.00) @db.Decimal(10, 2)
+  timeEntries     TimeEntry[]
+  managedMatters  Matter[]    @relation("LeadPartnerMatters")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model ClientProfile {
+  id              String        @id @default(uuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName     String?       // Legal entity name
+  entityType      String        @default("LLC") // LLC, C-Corp, S-Corp, Trust, Individual
+  tinOrSsnMasked  String?       // e.g. "***-**-4912"
+  billingAddress  String?
+  phone           String?
+  matters         Matter[]
+  trustAccount    TrustAccount?
+  invoices        Invoice[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+// ---------------------------------------------------------
+// MATTER & PRACTICE AREA MODELS
+// ---------------------------------------------------------
+
+model Matter {
+  id                String             @id @default(uuid())
+  tenantId          String
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  matterNumber      String             // e.g. "MAT-2026-081"
+  title             String
+  description       String?
+  matterType        MatterType
+  status            MatterStatus       @default(INTAKE_PENDING)
+  leadPartnerId     String
+  leadPartner       StaffProfile       @relation("LeadPartnerMatters", fields: [leadPartnerId], references: [id])
+  clientId          String
+  client            ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  checklists        ChecklistItem[]
+  documents         Document[]
+  timeEntries       TimeEntry[]
+  invoices          Invoice[]
+  trustTransactions TrustTransaction[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([tenantId, matterNumber])
+  @@index([tenantId, status])
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------
+// DOCUMENT INGESTION, OCR & PGVECTOR RAG EMBEDDINGS
+// ---------------------------------------------------------
+
+model ChecklistItem {
+  id              String          @id @default(uuid())
+  matterId        String
+  matter          Matter          @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  title           String          // e.g. "IRS Form W-2 (Tax Year 2025)"
+  requiredDocType String          // e.g. "FORM_W2", "ARTICLES_OF_INCORPORATION"
+  status          ChecklistStatus @default(PENDING)
+  dueDate         DateTime?
+  documentId      String?         @unique
+  document        Document?       @relation(fields: [documentId], references: [id])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([matterId, status])
+}
+
+model Document {
+  id              String              @id @default(uuid())
+  matterId        String
+  matter          Matter              @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  r2FileKey       String              // S3 / Cloudflare R2 object key
+  filename        String
+  mimeType        String
+  fileSize        Int
+  checksumSha256  String?
+  extractedText   String?             @db.Text
+  classification  String?             // AI detected type
+  confidenceScore Decimal?            @db.Decimal(5, 4)
+  verifiedById    String?
+  verifiedBy      User?               @relation("VerifiedStaffDocuments", fields: [verifiedById], references: [id])
+  verifiedAt      DateTime?
+  checklistItem   ChecklistItem?
+  embeddings      DocumentEmbedding[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([matterId])
+  @@index([r2FileKey])
+}
+
+model DocumentEmbedding {
+  id          String                 @id @default(uuid())
+  documentId  String
+  document    Document               @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunkIndex  Int
+  chunkText   String                 @db.Text
+  // pgvector 768-dimensional embedding for legal/tax semantic retrieval
+  embedding   Unsupported("vector(768)")?
+  createdAt   DateTime               @default(now())
+
+  @@index([documentId])
+}
+
+// ---------------------------------------------------------
+// IOLTA TRUST ACCOUNTING & ESCROW DOUBLE-ENTRY LEDGER
+// ---------------------------------------------------------
+
+model TrustAccount {
+  id              String             @id @default(uuid())
+  tenantId        String
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientId        String             @unique
+  client          ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  currentBalance  Decimal            @default(0.0) @db.Decimal(12, 2)
+  transactions    TrustTransaction[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([tenantId])
+}
+
+model TrustTransaction {
+  id              String               @id @default(uuid())
+  trustAccountId  String
+  trustAccount    TrustAccount         @relation(fields: [trustAccountId], references: [id], onDelete: Restrict)
+  matterId        String?
+  matter          Matter?              @relation(fields: [matterId], references: [id])
+  amount          Decimal              @db.Decimal(12, 2)
+  type            TrustTransactionType // DEPOSIT, DISBURSEMENT_TO_OPERATING, REFUND
+  referenceNumber String?              // e.g. "WIRE-99218", "CHK-4102"
+  approvedById    String
+  approver        User                 @relation("ApprovedTrustTransactions", fields: [approvedById], references: [id])
+  notes           String?
+  createdAt       DateTime             @default(now())
+
+  @@index([trustAccountId])
+  @@index([matterId])
+}
+
+// ---------------------------------------------------------
+// BILLING, TIMEKEEPING & INVOICING
+// ---------------------------------------------------------
+
+model TimeEntry {
+  id              String        @id @default(uuid())
+  matterId        String
+  matter          Matter        @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  staffId         String
+  staff           StaffProfile  @relation(fields: [staffId], references: [id])
+  durationMinutes Int           // Stored in minutes; displayed in 0.1 hr (6-min) increments
+  rateCharged     Decimal       @db.Decimal(10, 2)
+  description     String
+  isBilled        Boolean       @default(false)
+  invoiceId       String?
+  invoice         Invoice?      @relation(fields: [invoiceId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([matterId, isBilled])
+  @@index([staffId])
+}
+
+model Invoice {
+  id                   String            @id @default(uuid())
+  tenantId             String
+  tenant               Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceNumber        String            // e.g. "INV-2026-1049"
+  matterId             String
+  matter               Matter            @relation(fields: [matterId], references: [id])
+  clientId             String
+  client               ClientProfile     @relation(fields: [clientId], references: [id])
+  subtotal             Decimal           @db.Decimal(12, 2)
+  taxRate              Decimal           @default(0.0) @db.Decimal(5, 2)
+  taxAmount            Decimal           @default(0.0) @db.Decimal(12, 2)
+  trustRetainerApplied Decimal           @default(0.0) @db.Decimal(12, 2)
+  totalDue             Decimal           @db.Decimal(12, 2)
+  status               InvoiceStatus     @default(DRAFT)
+  pdfUrl               String?           // Cloudflare R2 URL
+  dueDate              DateTime
+  lineItems            InvoiceLineItem[]
+  timeEntries          TimeEntry[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status])
+  @@index([clientId])
+}
+
+model InvoiceLineItem {
+  id          String           @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  category    LineItemCategory @default(SERVICE)
+  hours       Decimal?         @db.Decimal(6, 2) // Stored to 0.1 hr accuracy
+  rate        Decimal?         @db.Decimal(10, 2)
+  amount      Decimal          @db.Decimal(12, 2)
+  createdAt   DateTime         @default(now())
+
+  @@index([invoiceId])
+}
+
+// ---------------------------------------------------------
+// AUDIT LOGGING & COMPLIANCE
+// ---------------------------------------------------------
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  actor        User?    @relation("ActorAuditLogs", fields: [actorId], references: [id])
+  action       String   // e.g. "INVOICE_PRINT_DISPATCHED", "TRUST_DISBURSEMENT", "DOC_VERIFIED"
+  targetEntity String   // e.g. "Invoice", "TrustTransaction", "Document"
+  targetId     String?
+  ipAddress    String?
+  userAgent    String?
+  metadata     Json?
+  timestamp    DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetEntity, targetId])
+  @@index([timestamp])
+}
