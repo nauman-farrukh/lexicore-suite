@@ -56,42 +56,50 @@ async function main() {
   });
 
   // 4. Create Active Matter
-  const matter = await prisma.matter.create({
-    data: {
-      tenantId: tenant.id,
-      clientId: clientProfile!.id,
-      leadPartnerId: partner.id,
-      title: '2025 Corporate Tax Filing & Operating Agreement Review',
-      matterType: MatterType.TAX,
-      status: MatterStatus.INTAKE_PENDING,
-      checklistItems: {
-        create: [
-          {
-            tenantId: tenant.id,
-            title: '2024 Form 1120-S Prior Year Return',
-            requiredDocType: 'Tax Return',
-            status: ChecklistStatus.VERIFIED,
-          },
-          {
-            tenantId: tenant.id,
-            title: 'Q4 Profit & Loss Statement',
-            requiredDocType: 'Financial Statement',
-            status: ChecklistStatus.PENDING,
-          },
-          {
-            tenantId: tenant.id,
-            title: 'Draft Operating Agreement Amendment',
-            requiredDocType: 'Legal Contract',
-            status: ChecklistStatus.PENDING,
-          },
-        ],
-      },
-    },
+  let matter = await prisma.matter.findFirst({
+    where: { tenantId: tenant.id, title: '2025 Corporate Tax Filing & Operating Agreement Review' },
   });
 
+  if (!matter) {
+    matter = await prisma.matter.create({
+      data: {
+        tenantId: tenant.id,
+        clientId: clientProfile!.id,
+        leadPartnerId: partner.id,
+        title: '2025 Corporate Tax Filing & Operating Agreement Review',
+        matterType: MatterType.TAX,
+        status: MatterStatus.INTAKE_PENDING,
+        checklistItems: {
+          create: [
+            {
+              tenantId: tenant.id,
+              title: '2024 Form 1120-S Prior Year Return',
+              requiredDocType: 'Tax Return',
+              status: ChecklistStatus.VERIFIED,
+            },
+            {
+              tenantId: tenant.id,
+              title: 'Q4 Profit & Loss Statement',
+              requiredDocType: 'Financial Statement',
+              status: ChecklistStatus.PENDING,
+            },
+            {
+              tenantId: tenant.id,
+              title: 'Draft Operating Agreement Amendment',
+              requiredDocType: 'Legal Contract',
+              status: ChecklistStatus.PENDING,
+            },
+          ],
+        },
+      },
+    });
+  }
+
   // 5. Initialize IOLTA Trust Account
-  await prisma.trustAccount.create({
-    data: {
+  await prisma.trustAccount.upsert({
+    where: { clientId: clientProfile!.id },
+    update: { currentBalance: 5000.0 },
+    create: {
       tenantId: tenant.id,
       clientId: clientProfile!.id,
       currentBalance: 5000.0, // Retainer on deposit
