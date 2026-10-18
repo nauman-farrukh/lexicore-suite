@@ -23,6 +23,12 @@ enum UserRole {
   CLIENT_USER
 }
 
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INVITED
+}
+
 enum MatterType {
   TAX
   ACCOUNTING
@@ -70,18 +76,20 @@ enum TrustTransactionType {
 // ---------------------------------------------------------
 
 model Tenant {
-  id              String         @id @default(uuid())
-  name            String         // e.g. "Lexicore Legal & Accounting LLP"
-  slug            String         @unique
-  plan            String         @default("FREE_COMMUNITY")
+  id              String          @id @default(uuid())
+  name            String          // e.g. "Lexicore Legal & Accounting LLP"
+  subdomain       String          @unique // Spec 01 subdomain
+  slug            String?         @unique // backwards-compat
+  plan            String          @default("FREE_COMMUNITY")
   users           User[]
   matters         Matter[]
+  checklistItems  ChecklistItem[]
   invoices        Invoice[]
   trustAccounts   TrustAccount[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-  @@index([slug])
+  @@index([subdomain])
 }
 
 model User {
@@ -90,12 +98,14 @@ model User {
   tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   email                 String             @unique
   passwordHash          String?            // Null if OAuth / Supabase Auth managed
-  fullName              String
+  fullName              String?            @default("")
   role                  UserRole
+  status                UserStatus         @default(ACTIVE)
   mfaEnabled            Boolean            @default(false)
   mfaSecret             String?            // Encrypted TOTP seed
   staffProfile          StaffProfile?
   clientProfile         ClientProfile?
+  leadMatters           Matter[]           @relation("LeadPartnerUserMatters")
   createdAuditLogs      AuditLog[]         @relation("ActorAuditLogs")
   approvedTransactions  TrustTransaction[] @relation("ApprovedTrustTransactions")
   verifiedDocuments     Document[]         @relation("VerifiedStaffDocuments")
@@ -110,12 +120,14 @@ model StaffProfile {
   id              String      @id @default(uuid())
   userId          String      @unique
   user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title           String      // e.g. "Senior Tax Associate", "Partner"
+  title           String?     @default("Partner") // e.g. "Senior Tax Associate", "Partner"
   barNumber       String?     // For Attorneys
   cpaLicense      String?     // For CPAs
-  defaultRate     Decimal     @default(350.00) @db.Decimal(10, 2)
+  licenseNumber   String?     // e.g. "CPA-789012"
+  practiceArea    String?     // e.g. "Corporate Tax & Compliance"
+  billableRate    Decimal?    @default(350.00) @db.Decimal(10, 2)
+  defaultRate     Decimal?    @default(350.00) @db.Decimal(10, 2)
   timeEntries     TimeEntry[]
-  managedMatters  Matter[]    @relation("LeadPartnerMatters")
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 }
@@ -144,16 +156,16 @@ model Matter {
   id                String             @id @default(uuid())
   tenantId          String
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  matterNumber      String             // e.g. "MAT-2026-081"
+  matterNumber      String?            @default(cuid()) // e.g. "MAT-2026-081"
   title             String
   description       String?
   matterType        MatterType
   status            MatterStatus       @default(INTAKE_PENDING)
   leadPartnerId     String
-  leadPartner       StaffProfile       @relation("LeadPartnerMatters", fields: [leadPartnerId], references: [id])
+  leadPartner       User               @relation("LeadPartnerUserMatters", fields: [leadPartnerId], references: [id])
   clientId          String
   client            ClientProfile      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  checklists        ChecklistItem[]
+  checklistItems    ChecklistItem[]
   documents         Document[]
   timeEntries       TimeEntry[]
   invoices          Invoice[]
@@ -172,6 +184,8 @@ model Matter {
 
 model ChecklistItem {
   id              String          @id @default(uuid())
+  tenantId        String?
+  tenant          Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   matterId        String
   matter          Matter          @relation(fields: [matterId], references: [id], onDelete: Cascade)
   title           String          // e.g. "IRS Form W-2 (Tax Year 2025)"
@@ -184,6 +198,7 @@ model ChecklistItem {
   updatedAt       DateTime        @updatedAt
 
   @@index([matterId, status])
+  @@index([tenantId])
 }
 
 model Document {
