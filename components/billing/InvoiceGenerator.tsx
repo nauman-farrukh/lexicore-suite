@@ -210,6 +210,29 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
         setSavedClientsList(JSON.parse(list));
       }
     } catch {}
+
+    // Also pull registered clients from Neon PostgreSQL database
+    fetch("/api/clients")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.clients)) {
+          setSavedClientsList((prev) => {
+            const emails = new Set(prev.map((c) => c.clientEmail));
+            const dbClients = data.clients
+              .filter((c: any) => c.user?.email && !emails.has(c.user.email))
+              .map((c: any) => ({
+                clientName: c.companyName || c.user?.fullName || "Client",
+                clientEmail: c.user?.email || "",
+                matterTitle: c.matters?.[0]?.title || "Corporate Legal & Tax Matters",
+                matterType: c.matters?.[0]?.matterType || "TAX",
+                savedAt: "Cloud DB",
+                invoiceNumber: `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+              }));
+            return [...prev, ...dbClients];
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleSaveInvoiceAndClient = () => {
@@ -463,8 +486,10 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
   return (
     <div className="w-full space-y-6">
       {/* Top Banner & Control Toolbar */}
-      <div className="glass-panel p-6 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border border-white/10 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="glass-panel p-6 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 border border-white/10 shadow-2xl relative z-30">
+        <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none -z-10">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
+        </div>
 
         <div className="relative z-10">
           <div className="flex items-center gap-2 text-xs font-mono font-bold text-indigo-400 uppercase tracking-widest">
@@ -518,33 +543,39 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
                 <span>Clients ({savedClientsList.length})</span>
               </button>
               {showClientPicker && (
-                <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 z-30 space-y-1 text-xs backdrop-blur-xl">
-                  <div className="font-semibold text-slate-300 px-2 py-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider flex justify-between items-center">
-                    <span>Recent Clients</span>
-                    <span className="text-[10px] text-slate-400 font-mono">Auto-Saved</span>
-                  </div>
-                  <div className="max-h-56 overflow-y-auto space-y-1 py-1">
-                    {savedClientsList.map((client, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleSelectSavedClient(client)}
-                        className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-indigo-600/20 hover:border-indigo-500/30 border border-transparent transition flex flex-col gap-0.5 group"
-                      >
-                        <span className="font-semibold text-white group-hover:text-indigo-300">
-                          {client.clientName}
-                        </span>
-                        <span className="text-[11px] text-slate-400 truncate">
-                          {client.matterTitle || client.clientEmail}
-                        </span>
-                        {client.savedAt && (
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            Saved at: {client.savedAt}
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowClientPicker(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-80 bg-slate-900 border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 space-y-1 text-xs backdrop-blur-2xl ring-1 ring-white/15">
+                    <div className="font-semibold text-slate-300 px-2 py-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider flex justify-between items-center">
+                      <span>Recent Clients</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Auto-Saved</span>
+                    </div>
+                    <div className="max-h-60 overflow-y-auto space-y-1 py-1">
+                      {savedClientsList.map((client, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleSelectSavedClient(client)}
+                          className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-indigo-600/20 hover:border-indigo-500/30 border border-transparent transition flex flex-col gap-0.5 group"
+                        >
+                          <span className="font-semibold text-white group-hover:text-indigo-300">
+                            {client.clientName}
                           </span>
-                        )}
-                      </button>
-                    ))}
+                          <span className="text-[11px] text-slate-400 truncate">
+                            {client.matterTitle || client.clientEmail}
+                          </span>
+                          {client.savedAt && (
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              Saved at: {client.savedAt}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -559,27 +590,33 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
               <span>Columns</span>
             </button>
             {showColumnMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-3 z-30 space-y-2 text-xs backdrop-blur-xl">
-                <div className="font-semibold text-slate-300 pb-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider">
-                  Display Columns
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowColumnMenu(false)}
+                />
+                <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-white/20 rounded-2xl shadow-2xl p-3 z-50 space-y-2 text-xs backdrop-blur-2xl ring-1 ring-white/15">
+                  <div className="font-semibold text-slate-300 pb-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider">
+                    Display Columns
+                  </div>
+                  {Object.keys(visibleColumns).map((col) => (
+                    <label key={col} className="flex items-center gap-2.5 cursor-pointer capitalize text-slate-300 hover:text-white">
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[col as keyof typeof visibleColumns]}
+                        onChange={(e) =>
+                          setVisibleColumns((prev) => ({
+                            ...prev,
+                            [col]: e.target.checked,
+                          }))
+                        }
+                        className="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                      />
+                      <span>{col}</span>
+                    </label>
+                  ))}
                 </div>
-                {Object.keys(visibleColumns).map((col) => (
-                  <label key={col} className="flex items-center gap-2.5 cursor-pointer capitalize text-slate-300 hover:text-white">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[col as keyof typeof visibleColumns]}
-                      onChange={(e) =>
-                        setVisibleColumns((prev) => ({
-                          ...prev,
-                          [col]: e.target.checked,
-                        }))
-                      }
-                      className="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
-                    />
-                    <span>{col}</span>
-                  </label>
-                ))}
-              </div>
+              </>
             )}
           </div>
 
@@ -618,7 +655,7 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
       </div>
 
       {/* Hardware Workstation & Spooler Control Strip */}
-      <div className="glass-panel p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between text-xs gap-4 border border-white/10 bg-slate-900/70">
+      <div className="glass-panel p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between text-xs gap-4 border border-white/10 bg-slate-900/70 relative z-10">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
