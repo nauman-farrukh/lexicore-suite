@@ -11,7 +11,7 @@
     "tauri": "tauri",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "prisma db seed"
   },
   "dependencies": {
     "@google/genai": "^2.3.0",
@@ -36,6 +36,7 @@
     "postcss": "^8.4.47",
     "prisma": "^5.20.0",
     "tailwindcss": "^3.4.13",
+    "ts-node": "^10.9.2",
     "tsx": "^4.23.15",
     "typescript": "^5.6.2"
   },
@@ -44,6 +45,6 @@
     "@types/react-dom": "19.3.0"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   }
 }
