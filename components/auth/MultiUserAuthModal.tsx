@@ -135,6 +135,18 @@ export function MultiUserAuthModal({
     });
 
     if (result.success && result.user) {
+      if (role === "CLIENT_ADMIN" || role === "CLIENT_USER") {
+        fetch("/api/clients", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientName: fullName || organizationName,
+            clientEmail: email,
+            matterTitle: `${organizationName} Legal & Accounting Onboarding`,
+            matterType: "TAX",
+          }),
+        }).catch(() => {});
+      }
       onSuccess(result.user);
       onClose();
     } else {

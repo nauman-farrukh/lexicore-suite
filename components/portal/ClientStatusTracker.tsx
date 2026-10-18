@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   CheckCircle2,
   Clock,
@@ -18,6 +18,7 @@ import {
   Lock,
   Cpu,
   Zap,
+  BookmarkCheck,
 } from "lucide-react";
 import type {
   MatterStatus,
@@ -104,6 +105,41 @@ export function ClientStatusTracker({
 }: ClientStatusTrackerProps) {
   // Active Stage Index
   const activeStageIndex = STAGES.findIndex((s) => s.id === currentStage);
+
+  // Active Matter & Client State (Synced with Portal & Storage)
+  const [activeMatterTitle, setActiveMatterTitle] = useState(matterTitle);
+  const [activeMatterType, setActiveMatterType] = useState(matterType);
+  const [activeClientName, setActiveClientName] = useState("Apex Horizon Holdings LLC");
+  const [activeMatterNumber, setActiveMatterNumber] = useState(matterNumber);
+  const [isSynced, setIsSynced] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("lexicore_active_invoice");
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.matterTitle) setActiveMatterTitle(data.matterTitle);
+        if (data.matterType) setActiveMatterType(`${data.matterType} & STATUTORY COMPLIANCE`);
+        if (data.clientName) setActiveClientName(data.clientName);
+        if (data.invoiceNumber) setActiveMatterNumber(`MAT-${data.invoiceNumber.replace("INV-", "")}`);
+        setIsSynced(true);
+      }
+    } catch {}
+
+    const handleUpdate = (e: any) => {
+      const data = e.detail;
+      if (data) {
+        if (data.matterTitle) setActiveMatterTitle(data.matterTitle);
+        if (data.matterType) setActiveMatterType(`${data.matterType} & STATUTORY COMPLIANCE`);
+        if (data.clientName) setActiveClientName(data.clientName);
+        if (data.invoiceNumber) setActiveMatterNumber(`MAT-${data.invoiceNumber.replace("INV-", "")}`);
+        setIsSynced(true);
+      }
+    };
+
+    window.addEventListener("lexicore:client-updated", handleUpdate);
+    return () => window.removeEventListener("lexicore:client-updated", handleUpdate);
+  }, []);
 
   // Client Checklist Items
   const [checklist, setChecklist] = useState<ChecklistItemViewModel[]>([
@@ -325,17 +361,25 @@ export function ClientStatusTracker({
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-white/10 relative z-10">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                {matterNumber}
+                {activeMatterNumber}
               </span>
               <span className="text-xs font-mono font-semibold text-cyan-400 uppercase tracking-widest">
-                {matterType}
+                {activeMatterType}
               </span>
+              {isSynced && (
+                <span className="text-[11px] text-emerald-400 font-mono flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <BookmarkCheck className="w-3 h-3" /> Synced with Portal
+                </span>
+              )}
             </div>
             <h1 className="text-xl sm:text-2xl font-black text-white mt-2 tracking-tight">
-              {matterTitle}
+              {activeMatterTitle}
             </h1>
+            <div className="text-xs text-slate-400 mt-1 font-mono">
+              CLIENT ENTITY: <span className="text-slate-200 font-semibold">{activeClientName}</span>
+            </div>
           </div>
 
           <div className="flex items-center gap-5 text-xs">

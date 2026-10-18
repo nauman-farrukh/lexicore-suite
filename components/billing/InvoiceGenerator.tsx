@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Printer,
   Download,
@@ -21,6 +21,9 @@ import {
   Sliders,
   CreditCard,
   FileText,
+  Save,
+  History,
+  BookmarkCheck,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePrinter } from "../../lib/hooks/usePrinter";
@@ -178,6 +181,106 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
   const handleRemoveItem = (id: string) => {
     if (lineItems.length <= 1) return;
     setLineItems((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  // Portal Persistence State
+  const [isSaved, setIsSaved] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [savedClientsList, setSavedClientsList] = useState<any[]>([]);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+
+  // Auto-load saved client/invoice on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("lexicore_active_invoice");
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.clientName) setClientName(data.clientName);
+        if (data.clientEmail) setClientEmail(data.clientEmail);
+        if (data.matterTitle) setMatterTitle(data.matterTitle);
+        if (data.matterType) setMatterType(data.matterType);
+        if (data.invoiceNumber) setInvoiceNumber(data.invoiceNumber);
+        if (data.lineItems && data.lineItems.length > 0) setLineItems(data.lineItems);
+        if (data.issueDate) setIssueDate(data.issueDate);
+        if (data.dueDate) setDueDate(data.dueDate);
+        setSavedAt("Loaded from active session");
+      }
+      const list = localStorage.getItem("lexicore_saved_clients");
+      if (list) {
+        setSavedClientsList(JSON.parse(list));
+      }
+    } catch {}
+  }, []);
+
+  const handleSaveInvoiceAndClient = () => {
+    const invoiceRecord: InvoiceData = {
+      id: `inv-${Date.now()}`,
+      invoiceNumber,
+      issueDate,
+      dueDate,
+      clientName,
+      clientEmail,
+      matterTitle,
+      matterType,
+      lineItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      trustRetainerAvailable: availableTrustRetainer,
+      trustRetainerApplied: effectiveRetainerApplied,
+      totalDue: netPayable,
+      status: "DRAFT",
+    };
+
+    try {
+      localStorage.setItem("lexicore_active_invoice", JSON.stringify(invoiceRecord));
+
+      const existing: any[] = JSON.parse(localStorage.getItem("lexicore_saved_clients") || "[]");
+      const updated = [
+        {
+          clientName,
+          clientEmail,
+          matterTitle,
+          matterType,
+          savedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          invoiceNumber,
+        },
+        ...existing.filter((c: any) => c.clientEmail !== clientEmail),
+      ];
+      localStorage.setItem("lexicore_saved_clients", JSON.stringify(updated));
+      setSavedClientsList(updated);
+      window.dispatchEvent(new CustomEvent("lexicore:client-updated", { detail: invoiceRecord }));
+
+      // Persist to Neon PostgreSQL Database
+      fetch("/api/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName,
+          clientEmail,
+          matterTitle,
+          matterType,
+          invoiceNumber,
+          totalDue: netPayable,
+        }),
+      }).catch((err) => console.warn("Cloud DB sync deferred or offline:", err));
+    } catch {}
+
+    if (onSave) {
+      onSave(invoiceRecord);
+    }
+
+    setIsSaved(true);
+    setSavedAt(`Saved at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+    setTimeout(() => setIsSaved(false), 3500);
+  };
+
+  const handleSelectSavedClient = (client: any) => {
+    if (client.clientName) setClientName(client.clientName);
+    if (client.clientEmail) setClientEmail(client.clientEmail);
+    if (client.matterTitle) setMatterTitle(client.matterTitle);
+    if (client.matterType) setMatterType(client.matterType);
+    setShowClientPicker(false);
   };
 
   // Generate lightweight printable PDF base64 / HTML print payload
@@ -382,6 +485,70 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
 
         {/* Action Buttons Toolbar */}
         <div className="flex flex-wrap items-center gap-2.5 relative z-10">
+          {/* Save Client & Invoice to Portal & Cloud DB */}
+          <button
+            onClick={handleSaveInvoiceAndClient}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-lg border ${
+              isSaved
+                ? "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/30"
+                : "bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/40 shadow-indigo-600/25"
+            }`}
+          >
+            {isSaved ? (
+              <>
+                <BookmarkCheck className="w-4 h-4 text-white" />
+                <span>Client & Invoice Saved!</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 text-indigo-200" />
+                <span>Save Client & Invoice</span>
+              </>
+            )}
+          </button>
+
+          {/* Saved Clients Directory Picker */}
+          {savedClientsList.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowClientPicker(!showClientPicker)}
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-slate-200 transition shadow-sm"
+              >
+                <History className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Clients ({savedClientsList.length})</span>
+              </button>
+              {showClientPicker && (
+                <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-white/10 rounded-xl shadow-2xl p-2 z-30 space-y-1 text-xs backdrop-blur-xl">
+                  <div className="font-semibold text-slate-300 px-2 py-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider flex justify-between items-center">
+                    <span>Recent Clients</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Auto-Saved</span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto space-y-1 py-1">
+                    {savedClientsList.map((client, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSelectSavedClient(client)}
+                        className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-indigo-600/20 hover:border-indigo-500/30 border border-transparent transition flex flex-col gap-0.5 group"
+                      >
+                        <span className="font-semibold text-white group-hover:text-indigo-300">
+                          {client.clientName}
+                        </span>
+                        <span className="text-[11px] text-slate-400 truncate">
+                          {client.matterTitle || client.clientEmail}
+                        </span>
+                        {client.savedAt && (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Saved at: {client.savedAt}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Columns Visibility */}
           <div className="relative">
             <button
@@ -552,9 +719,17 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
 
             <div className="mt-6 space-y-3 text-xs max-w-md">
               <div>
-                <label className="block text-slate-400 font-mono text-[10px] uppercase tracking-wider mb-1">
-                  CLIENT / CORPORATE ENTITY
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-400 font-mono text-[10px] uppercase tracking-wider">
+                    CLIENT / CORPORATE ENTITY
+                  </label>
+                  {savedAt && (
+                    <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-normal">
+                      <BookmarkCheck className="w-3 h-3" />
+                      {savedAt}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={clientName}
@@ -572,6 +747,19 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
                   onChange={(e) => setClientEmail(e.target.value)}
                   className="w-full glass-input px-3 py-1.5 rounded-lg text-slate-300 focus:border-indigo-500"
                 />
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveInvoiceAndClient}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 transition"
+                >
+                  <Save className="w-3 h-3 text-indigo-400" />
+                  <span>{isSaved ? "Saved to Portal!" : "Save Client to Portal"}</span>
+                </button>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Syncs with Client Portal & Neon DB
+                </span>
               </div>
             </div>
           </div>
