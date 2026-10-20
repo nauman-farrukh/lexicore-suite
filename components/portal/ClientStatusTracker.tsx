@@ -112,6 +112,8 @@ export function ClientStatusTracker({
   const [activeClientName, setActiveClientName] = useState("Apex Horizon Holdings LLC");
   const [activeMatterNumber, setActiveMatterNumber] = useState(matterNumber);
   const [isSynced, setIsSynced] = useState(false);
+  const [portalClients, setPortalClients] = useState<any[]>([]);
+  const [showPortalClientPicker, setShowPortalClientPicker] = useState(false);
 
   useEffect(() => {
     try {
@@ -126,6 +128,38 @@ export function ClientStatusTracker({
       }
     } catch {}
 
+    const loadPortalClients = () => {
+      try {
+        const stored = localStorage.getItem("lexicore_saved_clients");
+        if (stored) {
+          setPortalClients(JSON.parse(stored));
+        }
+      } catch {}
+
+      fetch("/api/clients")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.clients)) {
+            setPortalClients((prev) => {
+              const emails = new Set(prev.map((c) => c.clientEmail?.toLowerCase()));
+              const dbList = data.clients
+                .filter((c: any) => c.user?.email && !emails.has(c.user.email.toLowerCase()))
+                .map((c: any) => ({
+                  clientName: c.companyName || c.user?.fullName || "Client",
+                  clientEmail: c.user?.email,
+                  matterTitle: c.matters?.[0]?.title || "Corporate Legal & Tax Matter",
+                  matterType: c.matters?.[0]?.matterType || "TAX",
+                  invoiceNumber: c.matters?.[0]?.invoices?.[0]?.invoiceNumber || "INV-2026-0000",
+                }));
+              return [...prev, ...dbList];
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    loadPortalClients();
+
     const handleUpdate = (e: any) => {
       const data = e.detail;
       if (data) {
@@ -135,11 +169,25 @@ export function ClientStatusTracker({
         if (data.invoiceNumber) setActiveMatterNumber(`MAT-${data.invoiceNumber.replace("INV-", "")}`);
         setIsSynced(true);
       }
+      loadPortalClients();
     };
 
     window.addEventListener("lexicore:client-updated", handleUpdate);
     return () => window.removeEventListener("lexicore:client-updated", handleUpdate);
   }, []);
+
+  const handleSelectPortalClient = (client: any) => {
+    if (client.matterTitle) setActiveMatterTitle(client.matterTitle);
+    if (client.matterType) setActiveMatterType(`${client.matterType} & STATUTORY COMPLIANCE`);
+    if (client.clientName) setActiveClientName(client.clientName);
+    if (client.invoiceNumber) setActiveMatterNumber(`MAT-${client.invoiceNumber.replace("INV-", "")}`);
+    setIsSynced(true);
+    setShowPortalClientPicker(false);
+    try {
+      localStorage.setItem("lexicore_active_invoice", JSON.stringify(client));
+      window.dispatchEvent(new CustomEvent("lexicore:client-updated", { detail: client }));
+    } catch {}
+  };
 
   // Client Checklist Items
   const [checklist, setChecklist] = useState<ChecklistItemViewModel[]>([
@@ -356,8 +404,10 @@ export function ClientStatusTracker({
   return (
     <div className="w-full space-y-6">
       {/* Top Header Card */}
-      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-white/10 shadow-2xl relative z-20">
+        <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none -z-10">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
+        </div>
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-white/10 relative z-10">
           <div>
@@ -377,8 +427,73 @@ export function ClientStatusTracker({
             <h1 className="text-xl sm:text-2xl font-black text-white mt-2 tracking-tight">
               {activeMatterTitle}
             </h1>
-            <div className="text-xs text-slate-400 mt-1 font-mono">
-              CLIENT ENTITY: <span className="text-slate-200 font-semibold">{activeClientName}</span>
+            <div className="text-xs text-slate-400 mt-2 font-mono flex flex-wrap items-center gap-2">
+              <span>CLIENT ENTITY:</span>
+              <span className="text-slate-100 font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                {activeClientName}
+              </span>
+              {portalClients.length > 0 && (
+                <div className="relative inline-block ml-1">
+                  <button
+                    onClick={() => setShowPortalClientPicker(!showPortalClientPicker)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 font-sans text-xs font-semibold transition shadow-sm"
+                  >
+                    <span>Switch Client ({portalClients.length})</span>
+                  </button>
+                  {showPortalClientPicker && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowPortalClientPicker(false)}
+                      />
+                      <div className="absolute left-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-white/20 rounded-2xl shadow-2xl p-2.5 z-50 space-y-1 text-xs backdrop-blur-2xl ring-1 ring-white/15">
+                        <div className="font-semibold text-slate-300 px-2 py-1.5 border-b border-white/10 text-[11px] uppercase tracking-wider flex justify-between items-center">
+                          <span>Client Portals</span>
+                          <span className="text-[10px] text-slate-400 font-mono">Select to track</span>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto space-y-1.5 py-1">
+                          {portalClients.map((client, idx) => {
+                            const isCurrent =
+                              client.clientName?.toLowerCase() === activeClientName?.toLowerCase();
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => handleSelectPortalClient(client)}
+                                className={`w-full text-left px-3 py-2 rounded-xl border transition flex items-start justify-between gap-3 group ${
+                                  isCurrent
+                                    ? "bg-indigo-600/20 border-indigo-500/40 shadow-inner"
+                                    : "hover:bg-indigo-600/10 hover:border-indigo-500/20 border-white/5"
+                                }`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-white group-hover:text-indigo-300 text-xs truncate">
+                                      {client.clientName}
+                                    </span>
+                                    {isCurrent && (
+                                      <span className="text-[9px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono font-bold">
+                                        VIEWING
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                                    {client.matterTitle || client.clientEmail}
+                                  </div>
+                                  {client.invoiceNumber && (
+                                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                      Matter Ref: MAT-{client.invoiceNumber.replace("INV-", "")}
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

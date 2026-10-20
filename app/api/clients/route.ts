@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { UserRole, MatterType, MatterStatus, InvoiceStatus } from "@prisma/client";
+import { UserRole, MatterType, MatterStatus, InvoiceStatus, LineItemCategory } from "@prisma/client";
 
 export async function GET() {
   try {
@@ -16,18 +16,19 @@ export async function GET() {
           },
         },
         matters: {
-          take: 3,
           orderBy: { createdAt: "desc" },
-          select: {
-            id: true,
-            matterNumber: true,
-            title: true,
-            matterType: true,
-            status: true,
+          include: {
+            invoices: {
+              orderBy: { createdAt: "desc" },
+              include: {
+                lineItems: true,
+              },
+            },
+            checklistItems: true,
           },
         },
       },
-      take: 20,
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json({ success: true, clients });
@@ -49,7 +50,14 @@ export async function POST(req: Request) {
       matterTitle,
       matterType = "TAX",
       invoiceNumber,
-      totalDue,
+      issueDate,
+      dueDate,
+      lineItems = [],
+      subtotal = 0,
+      taxRate = 0,
+      taxAmount = 0,
+      trustRetainerApplied = 0,
+      totalDue = 0,
     } = body;
 
     if (!clientName || !clientEmail) {
@@ -59,7 +67,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Locate default firm tenant
+    // 1. Locate or create default firm tenant
     let tenant = await prisma.tenant.findFirst({
       where: { subdomain: "alpha-tax-legal" },
     });
@@ -140,41 +148,116 @@ export async function POST(req: Request) {
       MatterType.TAX;
 
     let matter = null;
-    if (matterTitle) {
+    const finalMatterTitle = matterTitle || `${clientName} Legal & Accounting Matter`;
+
+    matter = await prisma.matter.findFirst({
+      where: {
+        clientId: clientProfile.id,
+        title: finalMatterTitle,
+      },
+    });
+
+    if (!matter) {
       matter = await prisma.matter.create({
         data: {
           tenantId: tenant.id,
           clientId: clientProfile.id,
           leadPartnerId: partner.id,
           matterNumber: `MAT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-          title: matterTitle,
+          title: finalMatterTitle,
           matterType: resolvedMatterType,
           status: MatterStatus.UNDER_REVIEW,
         },
       });
     }
 
-    // 6. Create Invoice if provided
+    // 6. Upsert Invoice and Line Items
     let invoice = null;
     if (invoiceNumber && matter) {
-      invoice = await prisma.invoice.create({
-        data: {
+      const parsedDueDate = dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const safeDueDate = isNaN(parsedDueDate.getTime()) ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : parsedDueDate;
+
+      // Clean line items payload
+      const formattedLineItems = Array.isArray(lineItems)
+        ? lineItems.map((item: any) => ({
+            description: String(item.description || "Professional Services"),
+            category:
+              item.category === "EXPENSE"
+                ? LineItemCategory.EXPENSE
+                : item.category === "FILING_FEE"
+                ? LineItemCategory.FILING_FEE
+                : LineItemCategory.SERVICE,
+            hours: item.hours !== undefined && item.hours !== null ? Number(item.hours) : null,
+            rate: item.rate !== undefined && item.rate !== null ? Number(item.rate) : null,
+            amount: Number(item.amount) || 0,
+          }))
+        : [];
+
+      // Check if invoice already exists
+      const existingInvoice = await prisma.invoice.findFirst({
+        where: {
           tenantId: tenant.id,
-          matterId: matter.id,
-          clientId: clientProfile.id,
           invoiceNumber: invoiceNumber,
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          subtotal: Number(totalDue) || 0,
-          taxAmount: 0,
-          totalDue: Number(totalDue) || 0,
-          status: InvoiceStatus.DRAFT,
         },
       });
+
+      if (existingInvoice) {
+        invoice = await prisma.invoice.update({
+          where: { id: existingInvoice.id },
+          data: {
+            matterId: matter.id,
+            clientId: clientProfile.id,
+            dueDate: safeDueDate,
+            subtotal: Number(subtotal) || 0,
+            taxRate: Number(taxRate) || 0,
+            taxAmount: Number(taxAmount) || 0,
+            trustRetainerApplied: Number(trustRetainerApplied) || 0,
+            totalDue: Number(totalDue) || 0,
+          },
+        });
+
+        // Replace line items
+        await prisma.invoiceLineItem.deleteMany({
+          where: { invoiceId: existingInvoice.id },
+        });
+
+        if (formattedLineItems.length > 0) {
+          await prisma.invoiceLineItem.createMany({
+            data: formattedLineItems.map((li) => ({
+              ...li,
+              invoiceId: existingInvoice.id,
+            })),
+          });
+        }
+      } else {
+        // Create new invoice with nested line items
+        invoice = await prisma.invoice.create({
+          data: {
+            tenantId: tenant.id,
+            matterId: matter.id,
+            clientId: clientProfile.id,
+            invoiceNumber: invoiceNumber,
+            dueDate: safeDueDate,
+            subtotal: Number(subtotal) || 0,
+            taxRate: Number(taxRate) || 0,
+            taxAmount: Number(taxAmount) || 0,
+            trustRetainerApplied: Number(trustRetainerApplied) || 0,
+            totalDue: Number(totalDue) || 0,
+            status: InvoiceStatus.DRAFT,
+            lineItems: {
+              create: formattedLineItems,
+            },
+          },
+          include: {
+            lineItems: true,
+          },
+        });
+      }
     }
 
     return NextResponse.json({
       success: true,
-      message: `Client "${clientName}" saved successfully to Lexicore Portal & Cloud Neon PostgreSQL database.`,
+      message: `Client "${clientName}" saved successfully with all line items to Neon PostgreSQL.`,
       client: {
         id: clientUser.id,
         name: clientName,
