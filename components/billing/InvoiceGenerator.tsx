@@ -269,16 +269,31 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
     );
   };
 
-  const handleAddItem = () => {
+  const handleAddItem = (presetDescription?: string) => {
+    // Inherit the hourly rate from the most recent SERVICE item, or default to standard $350/hr
+    const lastServiceItem = [...lineItems].reverse().find((i) => i.category === "SERVICE" && i.rate);
+    const defaultRate = lastServiceItem?.rate ?? 350;
+    const defaultHours = 1.0;
+    const description = typeof presetDescription === "string" ? presetDescription : "";
+
+    const newId = `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newItem: InvoiceLineItem = {
-      id: `item-${Date.now()}`,
-      description: "AI-Assisted Contract Analysis & Statutory Compliance Check",
+      id: newId,
+      description,
       category: "SERVICE",
-      hours: 1.0,
-      rate: 450,
-      amount: 450,
+      hours: defaultHours,
+      rate: defaultRate,
+      amount: Number((defaultHours * defaultRate).toFixed(2)),
     };
     setLineItems((prev) => [...prev, newItem]);
+
+    // Automatically focus the description input of the newly added line item
+    setTimeout(() => {
+      const input = document.getElementById(`item-desc-${newId}`);
+      if (input) {
+        (input as HTMLInputElement).focus();
+      }
+    }, 60);
   };
 
   const handleRemoveItem = (id: string) => {
@@ -600,7 +615,7 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
               .map(
                 (item) => `
                 <tr>
-                  <td>${item.description}</td>
+                  <td>${item.description || "Professional Services"}</td>
                   <td>${item.category}</td>
                   <td style="text-align: right;">${item.hours ? item.hours.toFixed(1) : "-"}</td>
                   <td style="text-align: right;">${item.rate ? "$" + item.rate.toFixed(2) : "-"}</td>
@@ -667,7 +682,7 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
       "Invoice #": invoiceNumber,
       "Client": clientName,
       "Matter": matterTitle,
-      "Description": item.description,
+      "Description": item.description || "Professional Services",
       "Category": item.category,
       "Hours (0.1h)": item.hours || 0,
       "Rate ($/hr)": item.rate || 0,
@@ -1168,10 +1183,12 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
                 <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
                   <td className="py-2.5 px-3">
                     <input
+                      id={`item-desc-${item.id}`}
                       type="text"
                       value={item.description}
+                      placeholder="Enter billable service, consultation, or filing description..."
                       onChange={(e) => handleUpdateItem(item.id, "description", e.target.value)}
-                      className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 outline-none font-medium text-slate-200"
+                      className="w-full bg-transparent border-b border-white/10 hover:border-white/30 focus:border-indigo-400 outline-none font-medium text-slate-200 placeholder:text-slate-500 placeholder:italic transition-colors"
                     />
                   </td>
 
@@ -1253,14 +1270,43 @@ export function InvoiceGenerator({ initialInvoice, onSave }: InvoiceGeneratorPro
             </tbody>
           </table>
 
-          <div className="mt-4">
-            <button
-              onClick={handleAddItem}
-              className="inline-flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300 font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/20 hover:bg-indigo-500/10 transition"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Billable Unit (0.1h Increment)</span>
-            </button>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleAddItem()}
+                className="inline-flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300 font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/20 hover:bg-indigo-500/10 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Billable Unit (0.1h Increment)</span>
+              </button>
+
+              {/* Quick Presets for Instant 1-Click Insertion */}
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+                <span className="font-mono text-slate-500 text-[10px] uppercase">Quick Presets:</span>
+                {[
+                  "Client Consultation & Advisory",
+                  "Contract & Document Drafting",
+                  "Statutory Filing & Regulatory Review",
+                  "Tax Audit Defense & Reconciliation",
+                  "Legal Research & Case Assessment",
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => handleAddItem(preset)}
+                    className="px-2 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-indigo-300 border border-white/5 hover:border-indigo-500/30 transition text-[11px]"
+                    title={`Add "${preset}" unit`}
+                  >
+                    + {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-[11px] font-mono text-slate-500">
+              {lineItems.length} {lineItems.length === 1 ? "unit" : "units"} logged
+            </div>
           </div>
         </div>
 
